@@ -1,0 +1,120 @@
+```{r, message=FALSE, warning=FALSE}
+library(kohonen)
+library(MASS)
+library(igraph)
+library(cccd)
+library(StatMatch)
+library(matlib)
+library(tidyverse)
+library(magrittr)
+library(stats)
+```
+
+```{r}
+load("df_standard.Rda")
+load("dis_matrix.Rda")
+load("sample_data.Rda")
+```
+
+```{r}
+mds_coords <- isoMDS(as.dist(dis_matrix), k = 4)
+```
+```{r}
+mds_dis <- gower.dist(data.x = mds_coords[[1]])
+```
+
+
+```{r}
+knn <- nng(dx = dis_matrix, k = 5, mutual = FALSE, method = NULL, 
+    use.fnn = FALSE, algorithm = 'brute')
+
+knn_matrix <- matrix(0, nrow=nrow(mds_dis), ncol=ncol(mds_dis))
+
+for (i in 1:nrow(mds_dis)) {
+  neigh = neighbors(knn, i, mode="out")
+  neigh = as.numeric(neigh)
+  knn_matrix[i, neigh] <- 1
+}
+
+set.seed(1997)
+index1 <- sample(seq(1,nrow(mds_dis)), 50)
+index2 <- sample(seq(1,nrow(mds_dis)), 50)
+knn_matrix[index1,index2] <- 1
+
+knn_matrix <- knn_matrix + t(knn_matrix)
+knn_matrix[knn_matrix > 1] <- 1
+
+knn_with_dist <- knn_matrix * mds_dis
+sigma <- (sum(knn_with_dist)/sum(knn_matrix))
+W <- exp(-(knn_with_dist)^2/(2*(sigma^2)))
+W[W == 1] <- 0
+D <- diag(rowSums(W))
+volV <- sum(D)
+
+# unnormalized Laplacian L
+L <- D - W
+eig <- eigen(L)
+
+# normalized Laplacian L_sym
+D_invsqrt <- inv(sqrt(D))
+L_sym <- D_invsqrt %*% L %*% D_invsqrt
+eig_sym <- eigen(L_sym)
+```
+
+```{r}
+n <- length(eig$values)
+
+# unnormalized L nwe coordinates in prep for CTD embedding
+unnormal_coords <- map_dfc(seq(n-1, 1), function(.x) {
+  tibble(
+     sqrt(volV / eig$values[.x]) * eig$vectors[, .x]
+  ) %>%
+  set_colnames(.x)
+}) %>% as.matrix()
+
+# normalized L_sym new coordinates in prep for CTD embedding
+normal_coords <- map_dfc(seq(n-1, 1), function(.x) {
+  tibble(
+     sqrt(volV / eig_sym$values[.x]) * eig_sym$vectors[, .x]
+  ) %>%
+  set_colnames(.x)
+}) %>% as.matrix()
+
+# dividing each row by inv square root of degree d_i
+normal_coords <- D_invsqrt %*% normal_coords
+```
+
+```{r}
+# unnormalized CTD euclidean distances
+CTD_un_dis <- dist(unnormal_coords) %>% as.matrix()
+
+# normalized CTD euclidean distances
+CTD_n_dis <- dist(normal_coords) %>% as.matrix()
+```
+
+```{r}
+cmMDS_unCTD <- cmdscale(CTD_un_dis, k=4) %>% 
+  data.frame() %>%
+  set_colnames(c("pc1", "pc2", "pc3", "pc4"))
+
+cmMDS_nCTD <- cmdscale(CTD_n_dis, k=4) %>% 
+  data.frame() %>%
+  set_colnames(c("pc1", "pc2", "pc3", "pc4"))
+```
+
+```{r}
+save(CTD_un_dis, file = "CTD_un_dis.Rda")
+save(CTD_n_dis, file = "CTD_n_dis.Rda")
+```
+
+
+```{r}
+cmMDS_unCTD %>% 
+  ggplot(aes(x = pc3, y = pc4)) +
+  geom_point()
+```
+
+```{r}
+plot(eig_sym$values[1480:1500])
+```
+

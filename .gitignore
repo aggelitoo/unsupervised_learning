@@ -1,0 +1,6 @@
+project3/images
+*.png
+*.Rda
+*.csv
+*.Rhistory
+*.Rproj
